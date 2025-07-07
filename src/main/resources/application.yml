@@ -77,11 +77,11 @@ spring:
             allowedHeaders:
                 - "*"
             allowCredentials: true
-  security:
-    oauth2:
-      resource server:
-        jwt:
-          jwk-set-uri: "http://localhost:8080/realms/master/protocol/openid-connect/certs"
+  #security:
+  #  oauth2:
+  #    resource server:
+  #      jwt:
+  #        jwk-set-uri: "http://localhost:8080/realms/master/protocol/openid-connect/certs"
 
 management:
   endpoints:

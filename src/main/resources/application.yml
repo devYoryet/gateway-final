@@ -1,3 +1,6 @@
+# =============================================================================
+# GATEWAY - application.yml ACTUALIZADO CON FILTRO
+# =============================================================================
 server:
   port: 5000
 
@@ -14,54 +17,48 @@ spring:
         - id: SALON
           uri: "lb://SALON"
           predicates:
-            - Path= /salons/**, /api/salons/**, /api/admin/salons/**
+            - Path=/salons/**, /api/salons/**, /api/admin/salons/**
 
         - id: USER
           uri: "lb://USER"
           predicates:
-            - Path= /auth/**, /api/admin/users/**, /api/users/**, /users/**
-
+            - Path=/auth/**, /api/admin/users/**, /api/users/**, /users/**
 
         - id: SERVICE-OFFERING
-          uri:
-            "lb://SERVICE-OFFERING"
+          uri: "lb://SERVICE-OFFERING"
           predicates:
-            - Path= /api/service-offering/**
+            - Path=/api/service-offering/**
 
         - id: CATEGORY
-          uri:
-            "lb://CATEGORY"
+          uri: "lb://CATEGORY"
           predicates:
-            - Path= /api/categories/**
+            - Path=/api/categories/**
 
         - id: BOOKING
-          uri:
-            "lb://BOOKING"
+          uri: "lb://BOOKING"
           predicates:
-            - Path= /api/bookings/**
+            - Path=/api/bookings/**
 
         - id: PAYMENT
-          uri:
-            "lb://PAYMENT"
+          uri: "lb://PAYMENT"
           predicates:
-            - Path= /api/payments/**
+            - Path=/api/payments/**
 
         - id: NOTIFICATION
-          uri:
-            "lb://NOTIFICATION"
+          uri: "lb://NOTIFICATION"
           predicates:
-            - Path= /api/notifications/**
+            - Path=/api/notifications/**
 
         - id: REVIEW
-          uri:
-            "lb://REVIEW"
+          uri: "lb://REVIEW"
           predicates:
-            - Path= /api/reviews/**
+            - Path=/api/reviews/**
 
-
-
+      # 🚀 REGISTRAR FILTRO AQUÍ
       default-filters:
-      - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - name: UserContextFilter    # 🔥 ESTE ES EL FILTRO QUE YA TIENES
+        
       global-cors:
         cors-configurations:
           '[/**]':
@@ -75,13 +72,8 @@ spring:
               - DELETE
               - OPTIONS
             allowedHeaders:
-                - "*"
+              - "*"
             allowCredentials: true
-  #security:
-  #  oauth2:
-  #    resource server:
-  #      jwt:
-  #        jwk-set-uri: "http://localhost:8080/realms/master/protocol/openid-connect/certs"
 
 management:
   endpoints:
@@ -91,7 +83,6 @@ management:
   endpoint:
     env:
       access: read-only
-
 
 eureka:
   instance:
@@ -105,4 +96,4 @@ eureka:
 info:
   app:
     name: "gateway server"
-    description: "gateway server for ecommerce website"
+    description: "gateway server for salon booking system"

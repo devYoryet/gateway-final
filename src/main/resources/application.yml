@@ -57,7 +57,7 @@ spring:
       # 🚀 REGISTRAR FILTRO AQUÍ
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-        - name: UserContextFilter    # 🔥 ESTE ES EL FILTRO QUE YA TIENES
+        #- name: UserContextFilter    # 🔥 ESTE ES EL FILTRO QUE YA TIENES
         
       global-cors:
         cors-configurations:

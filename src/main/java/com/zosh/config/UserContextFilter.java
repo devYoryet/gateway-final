@@ -1,14 +1,16 @@
 // =============================================================================
-// GATEWAY - UserContextFilter CORREGIDO para email vacío
-// src/main/java/com/zosh/config/UserContextFilter.java
+// GATEWAY HÍBRIDO - UserContextFilter que funciona con TODOS los microservicios
+// Sin necesidad de cambiar nada más
 // =============================================================================
 package com.zosh.config;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.Base64;
@@ -17,26 +19,31 @@ import java.util.Base64;
 public class UserContextFilter extends AbstractGatewayFilterFactory<UserContextFilter.Config> {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final WebClient webClient;
 
-    public UserContextFilter() {
+    @Autowired
+    public UserContextFilter(WebClient.Builder webClientBuilder) {
         super(Config.class);
+        this.webClient = webClientBuilder.build();
     }
 
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+            String requestPath = exchange.getRequest().getURI().getPath();
 
-            System.out.println("🔍 UserContextFilter - Processing request: " + exchange.getRequest().getURI());
+            System.out.println("🔍 HYBRID GATEWAY - Processing: " + requestPath);
+            System.out.println("🔍 Auth Header: " + (authHeader != null ? "Present" : "Missing"));
 
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
 
                 try {
                     if (isCognitoToken(token)) {
-                        return processCognitoToken(exchange, chain, token);
+                        return processCognitoTokenHybrid(exchange, chain, token, authHeader);
                     } else {
-                        System.out.println("⚠️ Token no es de Cognito, procesando como JWT tradicional");
+                        System.out.println("⚠️ Token no es de Cognito, pasando sin modificar");
                         return chain.filter(exchange);
                     }
                 } catch (Exception e) {
@@ -63,128 +70,216 @@ public class UserContextFilter extends AbstractGatewayFilterFactory<UserContextF
         }
     }
 
-    private Mono<Void> processCognitoToken(
+    private Mono<Void> processCognitoTokenHybrid(
             org.springframework.web.server.ServerWebExchange exchange,
             org.springframework.cloud.gateway.filter.GatewayFilterChain chain,
-            String token) {
+            String token,
+            String originalAuthHeader) {
 
         try {
-            // Decodificar payload del JWT
+            // 1. Extraer información del token Cognito
             String[] parts = token.split("\\.");
-            String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
+            if (parts.length < 2) {
+                return chain.filter(exchange);
+            }
 
+            String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
             JsonNode claims = objectMapper.readTree(payload);
 
-            String cognitoUserId = claims.get("sub").asText();
+            String cognitoSub = claims.get("sub").asText();
+            String email = claims.has("email") ? claims.get("email").asText() : "";
+            String username = claims.has("preferred_username") ? claims.get("preferred_username").asText()
+                    : (claims.has("username") ? claims.get("username").asText() : email);
 
-            // 🚀 EXTRAER EMAIL CON MÚLTIPLES INTENTOS
-            String email = extractEmail(claims);
-
-            // 🚀 EXTRAER ROL CON MÚLTIPLES INTENTOS
-            String customRole = extractRole(claims);
-
-            // 🚀 GENERAR USERNAME DESDE EMAIL O SUB
-            String username = generateUsername(email, cognitoUserId);
-
-            System.out.println("✅ Cognito token procesado:");
-            System.out.println("   Sub: " + cognitoUserId);
+            System.out.println("🔍 Datos extraídos de Cognito:");
+            System.out.println("   Sub: " + cognitoSub);
             System.out.println("   Email: " + email);
             System.out.println("   Username: " + username);
-            System.out.println("   Role: " + customRole);
 
-            // 🚀 CREAR HEADERS COMPLETOS
-            var mutatedRequest = exchange.getRequest().mutate()
-                    .header("X-Cognito-Sub", cognitoUserId)
-                    .header("X-User-Email", email)
-                    .header("X-User-Username", username)
-                    .header("X-User-Role", customRole)
-                    .header("X-Gateway-Filter", "UserContextFilter")
-                    .header("X-Auth-Source", "Cognito")
-                    .build();
+            // 2. Consultar BD para obtener rol del usuario
+            return getUserRoleFromDB(cognitoSub, email)
+                    .flatMap(userRole -> {
+                        System.out.println("✅ Rol obtenido de BD: " + userRole);
 
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                        // 3. Validar acceso según rol y ruta
+                        String requestPath = exchange.getRequest().getURI().getPath();
+                        if (!hasAccess(userRole, requestPath)) {
+                            System.out.println("❌ Acceso denegado - Rol: " + userRole + ", Ruta: " + requestPath);
+                            return unauthorizedResponse(exchange);
+                        }
+
+                        // 4. 🚀 CLAVE: Añadir AMBOS - headers Y JWT original
+                        var modifiedRequest = exchange.getRequest().mutate()
+                                // ✅ Headers para microservicios ya modificados
+                                .header("X-Cognito-Sub", cognitoSub)
+                                .header("X-User-Email", email)
+                                .header("X-User-Username", username)
+                                .header("X-User-Role", userRole)
+                                .header("X-Auth-Source", "Cognito")
+
+                                // ✅ JWT original para microservicios no modificados
+                                .header("Authorization", originalAuthHeader)
+                                .build();
+
+                        var modifiedExchange = exchange.mutate()
+                                .request(modifiedRequest)
+                                .build();
+
+                        System.out.println("✅ HYBRID MODE: Headers Y JWT enviados");
+                        return chain.filter(modifiedExchange);
+                    })
+                    .onErrorResume(error -> {
+                        System.err.println("❌ Error consultando BD: " + error.getMessage());
+                        // Si falla la consulta, enviar request original
+                        return chain.filter(exchange);
+                    });
 
         } catch (Exception e) {
-            System.err.println("❌ Error procesando Cognito token: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("❌ Error procesando token: " + e.getMessage());
             return chain.filter(exchange);
         }
     }
 
-    private String extractEmail(JsonNode claims) {
-        // Intentar múltiples campos para obtener email
-        String email = null;
+    // 🚀 MÉTODO PARA CONSULTAR BD
+    private Mono<String> getUserRoleFromDB(String cognitoSub, String email) {
+        System.out.println("🔍 Consultando BD para usuario: " + email);
 
-        // Intento 1: Campo "email" estándar
-        if (claims.has("email") && !claims.get("email").isNull()) {
-            email = claims.get("email").asText();
-        }
+        return webClient.get()
+                .uri("http://USER/api/users/by-cognito-id/" + cognitoSub)
+                .retrieve()
+                .bodyToMono(UserResponse.class)
+                .map(user -> {
+                    System.out.println("✅ Usuario encontrado en BD: " + user.getRole());
+                    return user.getRole();
+                })
+                .onErrorResume(error -> {
+                    System.out.println("⚠️ Usuario no encontrado por Cognito ID, intentando por email");
 
-        // Intento 2: Campo "email_verified" a veces contiene el email
-        if ((email == null || email.isEmpty()) && claims.has("username")) {
-            String username = claims.get("username").asText();
-            if (username.contains("@")) {
-                email = username;
-            }
-        }
-
-        // Intento 3: Campo "preferred_username"
-        if ((email == null || email.isEmpty()) && claims.has("preferred_username")) {
-            String prefUsername = claims.get("preferred_username").asText();
-            if (prefUsername.contains("@")) {
-                email = prefUsername;
-            }
-        }
-
-        // Intento 4: Usar sub como base para email temporal
-        if (email == null || email.isEmpty()) {
-            String sub = claims.get("sub").asText();
-            email = sub.substring(0, 8) + "@cognito.generated";
-            System.out.println("⚠️ Email no encontrado, generando: " + email);
-        }
-
-        return email;
+                    // Fallback: buscar por email
+                    return webClient.get()
+                            .uri("http://USER/api/users/by-email/" + email)
+                            .retrieve()
+                            .bodyToMono(UserResponse.class)
+                            .map(user -> {
+                                System.out.println("✅ Usuario encontrado por email: " + user.getRole());
+                                return user.getRole();
+                            })
+                            .onErrorReturn("CUSTOMER"); // Rol por defecto si no encuentra
+                });
     }
 
-    private String extractRole(JsonNode claims) {
-        String role = "SALON_OWNER"; // Por defecto
+    // 🚀 VALIDACIÓN DE ACCESO MEJORADA - MÁS ESPECÍFICA
+    private boolean hasAccess(String userRole, String requestPath) {
+        System.out.println("🔍 Validando acceso - Rol: " + userRole + ", Ruta: " + requestPath);
 
-        // Intento 1: custom:role
-        if (claims.has("custom:role") && !claims.get("custom:role").isNull()) {
-            role = claims.get("custom:role").asText();
+        // Normalizar rol (quitar ROLE_ prefix si existe)
+        String normalizedRole = userRole.replace("ROLE_", "");
+
+        // 🚀 RUTAS QUE REQUIEREN ADMIN
+        if (requestPath.startsWith("/admin") ||
+                requestPath.startsWith("/api/admin") ||
+                requestPath.contains("/admin/")) {
+            boolean hasAccess = "ADMIN".equals(normalizedRole);
+            System.out.println("🔍 Ruta ADMIN - Acceso: " + hasAccess);
+            return hasAccess;
         }
 
-        // Intento 2: cognito:groups
-        else if (claims.has("cognito:groups")) {
-            JsonNode groups = claims.get("cognito:groups");
-            if (groups.isArray() && groups.size() > 0) {
-                role = groups.get(0).asText();
-            }
+        // 🚀 RUTAS QUE REQUIEREN SALON_OWNER
+        if (requestPath.contains("salon-owner") ||
+                requestPath.contains("/owner") ||
+                requestPath.contains("/chart") ||
+                requestPath.equals("/api/salons/owner") ||
+                requestPath.startsWith("/api/service-offering/salon-owner") ||
+                requestPath.startsWith("/api/categories/salon-owner") ||
+                requestPath.startsWith("/api/bookings/chart")) {
+            boolean hasAccess = "SALON_OWNER".equals(normalizedRole) || "ADMIN".equals(normalizedRole);
+            System.out.println("🔍 Ruta SALON_OWNER - Acceso: " + hasAccess);
+            return hasAccess;
         }
 
-        // Intento 3: groups
-        else if (claims.has("groups")) {
-            JsonNode groups = claims.get("groups");
-            if (groups.isArray() && groups.size() > 0) {
-                role = groups.get(0).asText();
-            }
+        // 🚀 RUTAS QUE REQUIEREN CUSTOMER o superior
+        if (requestPath.startsWith("/api/bookings") && !requestPath.contains("/chart")) {
+            boolean hasAccess = "CUSTOMER".equals(normalizedRole) ||
+                    "SALON_OWNER".equals(normalizedRole) ||
+                    "ADMIN".equals(normalizedRole);
+            System.out.println("🔍 Ruta CUSTOMER - Acceso: " + hasAccess);
+            return hasAccess;
         }
 
-        // Para el caso específico: si viene de become-partner, debería ser SALON_OWNER
-        // Podríamos inferirlo del contexto o URL
+        // 🚀 RUTAS PÚBLICAS (cualquier usuario autenticado)
+        if (requestPath.contains("/api/salons") ||
+                requestPath.contains("/api/service-offering") ||
+                requestPath.contains("/api/categories") ||
+                requestPath.contains("/api/reviews") ||
+                requestPath.contains("/api/users/profile") ||
+                requestPath.contains("/api/notifications") ||
+                requestPath.contains("/api/payments")) {
+            System.out.println("🔍 Ruta PÚBLICA - Acceso: true");
+            return true;
+        }
 
-        return role.toUpperCase();
+        // 🚀 POR DEFECTO PERMITIR (para desarrollo)
+        System.out.println("🔍 Ruta NO ESPECÍFICA - Acceso: true (por defecto)");
+        return true;
     }
 
-    private String generateUsername(String email, String cognitoUserId) {
-        if (email != null && !email.isEmpty() && !email.contains("@cognito.generated")) {
+    private Mono<Void> unauthorizedResponse(org.springframework.web.server.ServerWebExchange exchange) {
+        System.out.println("❌ Enviando respuesta 401 - Unauthorized");
+        exchange.getResponse().setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED);
+        return exchange.getResponse().setComplete();
+    }
+
+    // DTO para respuesta del microservicio User
+    public static class UserResponse {
+        private Long id;
+        private String email;
+        private String fullName;
+        private String role;
+        private String cognitoUserId;
+
+        // Getters y setters
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public String getEmail() {
             return email;
-        } else {
-            return "user_" + cognitoUserId.substring(0, 8);
+        }
+
+        public void setEmail(String email) {
+            this.email = email;
+        }
+
+        public String getFullName() {
+            return fullName;
+        }
+
+        public void setFullName(String fullName) {
+            this.fullName = fullName;
+        }
+
+        public String getRole() {
+            return role;
+        }
+
+        public void setRole(String role) {
+            this.role = role;
+        }
+
+        public String getCognitoUserId() {
+            return cognitoUserId;
+        }
+
+        public void setCognitoUserId(String cognitoUserId) {
+            this.cognitoUserId = cognitoUserId;
         }
     }
 
     public static class Config {
-        // Configuración del filtro
+        // Configuración del filtro si es necesaria
     }
 }

@@ -1,12 +1,27 @@
 # =============================================================================
-# GATEWAY - application.yml ACTUALIZADO CON FILTRO
+# GATEWAY - application.yml CORREGIDO
 # =============================================================================
+
 server:
-  port: 5000
+  port: ${SERVER_PORT:5000}
 
 spring:
   application:
-    name: gateway-server
+    name: ${SPRING_APPLICATION_NAME:gateway-server}  # Era "gateway-serve" ❌
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # Oracle Connection para filtros que consulten BD
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:oracle:thin:@localhost:1521:xe}
+    username: ${SPRING_DATASOURCE_USERNAME:dev_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:dev_pass}
+    driver-class-name: oracle.jdbc.OracleDriver
+
+  jpa:
+    database-platform: org.hibernate.dialect.OracleDialect
+    hibernate:
+      ddl-auto: validate
 
   cloud:
     gateway:
@@ -14,57 +29,55 @@ spring:
         locator:
           enabled: true
       routes:
+        # ✅ CORREGIDO: Nombres en minúsculas para microservicios
         - id: SALON
-          uri: "lb://SALON"
+          uri: "lb://salon"  # ❌ Era "lb://SALON"
           predicates:
             - Path=/salons/**, /api/salons/**, /api/admin/salons/**
 
         - id: USER
-          uri: "lb://USER"
+          uri: "lb://user"   # ❌ Era "lb://USER"
           predicates:
             - Path=/auth/**, /api/admin/users/**, /api/users/**, /users/**
 
         - id: SERVICE-OFFERING
-          uri: "lb://SERVICE-OFFERING"
+          uri: "lb://service-offering"  # ❌ Era "lb://SERVICE-OFFERING"
           predicates:
             - Path=/api/service-offering/**
 
         - id: CATEGORY
-          uri: "lb://CATEGORY"
+          uri: "lb://category"  # ❌ Era "lb://CATEGORY"
           predicates:
             - Path=/api/categories/**
 
         - id: BOOKING
-          uri: "lb://BOOKING"
+          uri: "lb://booking"   # ❌ Era "lb://BOOKING"
           predicates:
             - Path=/api/bookings/**
 
         - id: PAYMENT
-          uri: "lb://PAYMENT"
+          uri: "lb://payment"   # ❌ Era "lb://PAYMENT"
           predicates:
             - Path=/api/payments/**
 
         - id: NOTIFICATION
-          uri: "lb://NOTIFICATION"
+          uri: "lb://notification"  # ❌ Era "lb://NOTIFICATION"
           predicates:
             - Path=/api/notifications/**
 
         - id: REVIEW
-          uri: "lb://REVIEW"
+          uri: "lb://review"    # ❌ Era "lb://REVIEW"
           predicates:
             - Path=/api/reviews/**
 
-      # 🚀 REGISTRAR FILTRO AQUÍ
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-        #- name: UserContextFilter    # 🔥 ESTE ES EL FILTRO QUE YA TIENES
         
       global-cors:
         cors-configurations:
           '[/**]':
             allowedOrigins:
-              - "http://localhost:3000"
-              - "https://salon-booking-three.vercel.app"
+              - "${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://front-final-nine.vercel.app/}"
             allowedMethods:
               - GET
               - POST
@@ -74,6 +87,13 @@ spring:
             allowedHeaders:
               - "*"
             allowCredentials: true
+
+  # ✅ AGREGADO: Cognito JWT Configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${COGNITO_JWK_SET_URI:}
 
 management:
   endpoints:
@@ -87,11 +107,12 @@ management:
 eureka:
   instance:
     preferIpAddress: true
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:gatewayserver}  # ✅ AGREGADO
   client:
     fetchRegistry: true
     registerWithEureka: true
     serviceUrl:
-      defaultZone: http://localhost:8070/eureka/
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8070/eureka/}  # ✅ Variable
 
 info:
   app:

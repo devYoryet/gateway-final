@@ -31,42 +31,42 @@ spring:
       routes:
         # ✅ CORREGIDO: Nombres en minúsculas para microservicios
         - id: SALON
-          uri: "lb://salon"  # ❌ Era "lb://SALON"
+          uri: "lb://SALON"  # ❌ Era "lb://SALON"
           predicates:
             - Path=/salons/**, /api/salons/**, /api/admin/salons/**
 
         - id: USER
-          uri: "lb://user"   # ❌ Era "lb://USER"
+          uri: "lb://USER"   # ❌ Era "lb://USER"
           predicates:
             - Path=/auth/**, /api/admin/users/**, /api/users/**, /users/**
 
         - id: SERVICE-OFFERING
-          uri: "lb://service-offering"  # ❌ Era "lb://SERVICE-OFFERING"
+          uri: "lb://SERVICE-OFFERING"  # ❌ Era "lb://SERVICE-OFFERING"
           predicates:
             - Path=/api/service-offering/**
 
         - id: CATEGORY
-          uri: "lb://category"  # ❌ Era "lb://CATEGORY"
+          uri: "lb://CATEGORY"  # ❌ Era "lb://CATEGORY"
           predicates:
             - Path=/api/categories/**
 
         - id: BOOKING
-          uri: "lb://booking"   # ❌ Era "lb://BOOKING"
+          uri: "lb://BOOKING"   # ❌ Era "lb://BOOKING"
           predicates:
             - Path=/api/bookings/**
 
         - id: PAYMENT
-          uri: "lb://payment"   # ❌ Era "lb://PAYMENT"
+          uri: "lb://PAYMENT"   # ❌ Era "lb://PAYMENT"
           predicates:
             - Path=/api/payments/**
 
         - id: NOTIFICATION
-          uri: "lb://notification"  # ❌ Era "lb://NOTIFICATION"
+          uri: "lb://NOTIFICATION"  # ❌ Era "lb://NOTIFICATION"
           predicates:
             - Path=/api/notifications/**
 
         - id: REVIEW
-          uri: "lb://review"    # ❌ Era "lb://REVIEW"
+          uri: "lb://REVIEW"    # ❌ Era "lb://REVIEW"
           predicates:
             - Path=/api/reviews/**
 

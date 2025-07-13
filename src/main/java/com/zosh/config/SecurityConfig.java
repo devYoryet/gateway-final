@@ -48,7 +48,8 @@ public class SecurityConfig {
                 configuration.setAllowedOrigins(Arrays.asList(
                                 "http://localhost:3000",
                                 "https://salon-booking-three.vercel.app",
-                                "https://urban-glow.vercel.app"));
+                                "https://urban-glow.vercel.app",
+                                "https://front-final-nine.vercel.app"));
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
                 configuration.setAllowedHeaders(Collections.singletonList("*"));
                 configuration.setExposedHeaders(Collections.singletonList("Authorization"));
